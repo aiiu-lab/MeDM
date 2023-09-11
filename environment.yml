@@ -16,9 +16,10 @@ dependencies:
     - opencv-contrib-python
     - transformers
     - accelerate
-    - controlnet-aux==0.0.5
+    - controlnet-aux
     - jupyterlab==3.6.3
     - ipywidgets
     - matplotlib
     - git+https://github.com/tensorflow/docs
+    - git+https://github.com/ernestchu/unimatch@add-setup.py
 
