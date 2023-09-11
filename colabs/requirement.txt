@@ -1,0 +1,9 @@
+xformers
+av
+transformers
+accelerate
+controlnet-aux
+matplotlib
+git+https://github.com/tensorflow/docs
+git+https://github.com/ernestchu/unimatch@add-setup.py
+

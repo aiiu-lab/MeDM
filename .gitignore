@@ -174,3 +174,6 @@ tags
 .ruff_cache
 
 wandb
+
+sintel
+tmp
