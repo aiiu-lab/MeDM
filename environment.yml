@@ -1,0 +1,24 @@
+name: medm
+channels:
+  - pytorch
+  - nvidia
+  - xformers
+  - defaults
+dependencies:
+  - python=3.10
+  - pip
+  - pytorch==2.0.0
+  - torchvision==0.15.0
+  - pytorch-cuda=11.7
+  - xformers
+  - pip:
+    - av
+    - opencv-contrib-python
+    - transformers
+    - accelerate
+    - controlnet-aux==0.0.5
+    - jupyterlab==3.6.3
+    - ipywidgets
+    - matplotlib
+    - git+https://github.com/tensorflow/docs
+
