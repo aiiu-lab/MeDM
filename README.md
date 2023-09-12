@@ -1,18 +1,16 @@
+# MeDM: Mediating Image Diffusion Models for Video-to-Video Translation with Temporal Correspondence Guidance
+
+<video src="https://medm2023.github.io/videos/teaser.mp4" width="100%" loop muted autoplay playsinline></video>
 
 
-### Colab demo
-Since this repo is currently private, you need to fork it under your own Github user in order to run the notebook on colab.
-After forking the repo, you can test the colab link I prepared ...
+[Ernie Chu](https://ernestchu.github.io),
+Tzuhsuan Huang,
+Shuo-Yen Lin,
+[Jun-Cheng Chen](https://www.citi.sinica.edu.tw/pages/pullpull/)
 
-#### For `aiiu-lab`
+#### [Project Page](https://medm2023.github.io) | [Paper](https://medm2023.github.io/medm.pdf) | [arXiv](https://arxiv.org/abs/2308.10079) | [Colab](#colab-demo)
+
+## Colab demo
 - [Ground-truth flow](https://colab.research.google.com/github/aiiu-lab/MeDM/blob/main/colabs/gt_flow.ipynb)
 - [Predicted flow](https://colab.research.google.com/github/aiiu-lab/MeDM/blob/main/colabs/pred_flow.ipynb)
-
-#### For `ernestchu`
-- [Ground-truth flow](https://colab.research.google.com/github/ernestchu/MeDM/blob/main/colabs/gt_flow.ipynb)
-- [Predicted flow](https://colab.research.google.com/github/ernestchu/MeDM/blob/main/colabs/pred_flow.ipynb)
-
-#### For `rareone0602`
-- [Ground-truth flow](https://colab.research.google.com/github/rareone0602/MeDM/blob/main/colabs/gt_flow.ipynb)
-- [Predicted flow](https://colab.research.google.com/github/rareone0602/MeDM/blob/main/colabs/pred_flow.ipynb)
 
