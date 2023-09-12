@@ -17,7 +17,6 @@ else:
     from .pipeline_controlnet_img2img import StableDiffusionControlNetImg2ImgPipeline
     from .pipeline_controlnet_inpaint import StableDiffusionControlNetInpaintPipeline
     from .pipeline_controlnet_sd_xl import StableDiffusionXLControlNetPipeline
-    from .pipeline_controlnet_medm import StableDiffusionControlNetMeDMPipeline
 
 
 if is_transformers_available() and is_flax_available():

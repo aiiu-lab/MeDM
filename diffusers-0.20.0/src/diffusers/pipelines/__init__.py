@@ -29,6 +29,7 @@ else:
     from .repaint import RePaintPipeline
     from .score_sde_ve import ScoreSdeVePipeline
     from .stochastic_karras_ve import KarrasVePipeline
+    from .medm import MeDMPipeline
 
 try:
     if not (is_torch_available() and is_librosa_available()):
@@ -51,7 +52,6 @@ else:
         StableDiffusionControlNetInpaintPipeline,
         StableDiffusionControlNetPipeline,
         StableDiffusionXLControlNetPipeline,
-        StableDiffusionControlNetMeDMPipeline,
     )
     from .deepfloyd_if import (
         IFImg2ImgPipeline,
