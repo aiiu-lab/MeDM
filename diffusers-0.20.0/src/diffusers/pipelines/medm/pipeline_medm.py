@@ -39,7 +39,7 @@ from ...utils import (
 from ..pipeline_utils import DiffusionPipeline
 from ..stable_diffusion import StableDiffusionPipelineOutput
 from ..stable_diffusion.safety_checker import StableDiffusionSafetyChecker
-from .multicontrolnet import MultiControlNetModel
+from ..controlnet.multicontrolnet import MultiControlNetModel
 import time
 
 
@@ -659,17 +659,6 @@ class MeDMPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoaderMix
         images = [img for img in images[:, None]]
         processed_images = []
         for image in images:
-            # image_batch_size = image.shape[0]
-
-            # if image_batch_size == 1:
-            #     repeat_by = batch_size
-            # else:
-            #     # image batch size is the same as prompt batch size
-            #     repeat_by = num_images_per_prompt
-
-            # image = image.repeat_interleave(repeat_by, dim=0)
-
-
             if do_classifier_free_guidance and not guess_mode:
                 image = torch.cat([image] * 2)
 
@@ -766,26 +755,15 @@ class MeDMPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoaderMix
         cross_attention_kwargs: Optional[Dict[str, Any]] = None,
         controlnet_conditioning_scale: Union[float, List[float]] = 1.0,
         guess_mode: bool = False,
-        kernel: Optional[torch.Tensor] = None,
         mixer = None,
         flows: Optional[torch.FloatTensor] = None,
         occlusions: Optional[torch.BoolTensor] = None,
-        long_flows: Optional[torch.FloatTensor] = None,
-        long_occlusions: Optional[torch.BoolTensor] = None,
-        long_range_flow_offset: int = 1,
         backward_coding: bool = True,
         no_control_from_step: int = 999,
         no_mix_from_step: int = 999,
         harmonization_scale: float = 1.,
-        random_occlusions_p: float = 0.02,
-        warp_mode: str = 'nearest',
-        mix_mode: str = 'global_average', # global_average | convolution
-        kernel_width: Optional[int] = None,
-        average_small_bucket: bool = True, # whether to use average instead of convolution on small buckets
-        small_bucket_threshold: float = 0.5, # is small bucket if the size < len(kenel) * small_bucket_threshold
         unet_batch_size: int = 1,
         vae_batch_size: int = 1,
-        vae_compensation: bool = False,
         cpu_offload_text_encoder: bool = False,
         original_image: Optional[torch.FloatTensor] = None,
         strength: float = 0.8,
@@ -1019,9 +997,7 @@ class MeDMPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoaderMix
         # 7.5. CUSTOM. Prepare pixel mixer based on given flows and occlusions
         if harmonization_scale > 0:
             with Timer('coding'):
-                mixer = mixer or FlowCoding(flows, occlusions, long_flows, long_occlusions, long_range_flow_offset,
-                                            warp_mode, mix_mode, kernel_width, average_small_bucket, small_bucket_threshold,
-                                            backward_coding, random_occlusions_p)
+                mixer = mixer or FlowCoding(flows, occlusions, backward_coding)
             mixer.to(device=device, dtype=controlnet.dtype) # MEMSAVE
 
         # 8. Denoising loop
@@ -1118,7 +1094,7 @@ class MeDMPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoaderMix
 
                     # harmonize the video
                     with Timer('mix'):
-                        pred_clean_latents_observed = mixer(pred_clean_latents_observed, kernel)
+                        pred_clean_latents_observed = mixer(pred_clean_latents_observed)
 
                     with Timer('vae'):
                         # cast `pred_clean_latents_observed' to the latent space
@@ -1126,28 +1102,6 @@ class MeDMPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoaderMix
                             harmonized_pred_clean_latents_list[frame_id:frame_id+vae_batch_size] = self.vae.encode(
                                 pred_clean_latents_observed[frame_id:frame_id+vae_batch_size]).latent_dist.mode()
                         harmonized_pred_clean_latents_list *= self.vae.config.scaling_factor
-
-                    if vae_compensation:
-                        # HACK: Fidelity-oriented image encoding from https://arxiv.org/abs/2306.07954
-                        #       Minimizing reconstruction loss
-                        # Let x' = EDx, E and D are lossy encode and decode matrix, respectively
-                        # And x'' = EDEDx
-                        # It is claimed that x - x' = r(x' - x''), where r is a scaler multiplier typically set to 1
-                        # So we derive x = 2x' - x''
-
-                        # cast `harmonized_pred_clean_latents_list' to the observed space
-                        harmonized_pred_clean_latents_list_2_pass = harmonized_pred_clean_latents_list / self.vae.config.scaling_factor
-                        for frame_id in range(0, len(harmonized_pred_clean_latents_list), vae_batch_size):
-                            pred_clean_latents_observed[frame_id:frame_id+vae_batch_size] = self.vae.decode(
-                                harmonized_pred_clean_latents_list_2_pass[frame_id:frame_id+vae_batch_size], return_dict=False)[0]
-
-                        # cast `pred_clean_latents_observed' to the latent space
-                        for frame_id in range(0, len(harmonized_pred_clean_latents_list), vae_batch_size):
-                            harmonized_pred_clean_latents_list_2_pass[frame_id:frame_id+vae_batch_size] = self.vae.encode(
-                                pred_clean_latents_observed[frame_id:frame_id+vae_batch_size]).latent_dist.mode()
-                        harmonized_pred_clean_latents_list_2_pass *= self.vae.config.scaling_factor
-
-                        harmonized_pred_clean_latents_list = harmonized_pred_clean_latents_list * 2 - harmonized_pred_clean_latents_list_2_pass
 
                 ##################################################
                 # original x_0 preds: pred_clean_latents_list
@@ -1226,37 +1180,21 @@ class MeDMPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoaderMix
 
 
 class FlowCoding(torch.nn.Module):
-    def __init__(self, flows, occlusions, long_flows, long_occlusions, long_range_flow_offset,
-                 warp_mode, mix_mode, kernel_width, average_small_bucket, small_bucket_threshold,
-                 backward_coding, random_occlusions_p):
+    def __init__(self, flows, occlusions, backward_coding):
         '''
         backward flow coding:
             required: optical flow map, occlusion mask, target shape
             return: number of unique pixels, encoded pixels (index to the unique pixels)
         '''
         super().__init__()
-        assert warp_mode in ['nearest']
-        assert mix_mode in ['global_average', 'convolution']
-        assert mix_mode != 'convolution' or kernel_width is not None, "when in `convolution' mix_mode, "
-        "a kernel_width must be specified"
-        assert not ((long_flows is None) ^ (long_occlusions is None))
-
-        self.warp_mode = warp_mode
-
         # unbatched (batched inference has not implemented)
         flows = flows[0]
         occlusions = occlusions[0]
-        if long_flows is not None:
-            long_flows = long_flows[0]
-            long_occlusions = long_occlusions[0]
         
         # flip along temporal dimension for backward coding
         if backward_coding:
             flows = flows.flip(0)
             occlusions = occlusions.flip(0)
-            if long_flows is not None:
-                long_flows = long_flows.flip(0)
-                long_occlusions = long_occlusions.flip(0)
         
         # coordinate matrix
         shape = occlusions.shape[1:]
@@ -1270,7 +1208,6 @@ class FlowCoding(torch.nn.Module):
         enc = torch.arange(n_pixels).view(shape)
         encoded_pixels.append(enc)
         
-        flow_errors = torch.zeros_like(flows[0])
         for i in range(len(flows)):
             flow = flows[i]
             occlusion = occlusions[i]
@@ -1279,32 +1216,9 @@ class FlowCoding(torch.nn.Module):
             enc = torch.zeros_like(enc)
 
             unfulfilled_mask = torch.ones_like(occlusion)
-            if long_flows is not None:
-                long_flow = long_flows[i]
-                long_occlusion = long_occlusions[i]
-
-                dest = (long_flow + meshgrid).round().to(int)
-
-                # discard out-of-range
-                valid_mask = ((dest >= 0) & (dest < torch.tensor(dest.shape[:2]))).all(-1)
-                valid_mask = torch.logical_and(valid_mask, unfulfilled_mask)
-                v_dest = dest[valid_mask]
-                v_grid = meshgrid[valid_mask]
-
-                # jump to the anchor enc
-                offset = min(len(encoded_pixels), long_range_flow_offset)
-                anchor_enc = encoded_pixels[-offset]
-
-                # get the common pixels from the previous frame
-                enc[v_grid[:, 0], v_grid[:, 1]] = anchor_enc[v_dest[:, 0], v_dest[:, 1]]
-                # set the warped pixels to fulfilled
-                unfulfilled_mask = torch.logical_and(unfulfilled_mask, ~valid_mask)
-                # unset the occluded pixels
-                unfulfilled_mask = torch.logical_or(unfulfilled_mask, long_occlusion)
 
             dest_float = flow + meshgrid
             dest = dest_float.round().to(int)
-            flows_errors = (dest_float - dest).abs()
 
             # discard out-of-range
             valid_mask = ((dest >= 0) & (dest < torch.tensor(dest.shape[:2]))).all(-1)
@@ -1319,11 +1233,6 @@ class FlowCoding(torch.nn.Module):
             unfulfilled_mask = torch.logical_and(unfulfilled_mask, ~valid_mask)
             # unset the occluded pixels
             unfulfilled_mask = torch.logical_or(unfulfilled_mask, occlusion)
-
-            # unset the random pixels
-            random_occlusion = torch.rand_like(occlusion*1.) < random_occlusions_p
-            unfulfilled_mask = torch.logical_or(unfulfilled_mask, random_occlusion)
-            
 
             # novel pixels = occlusions + invalid meshgrid (long and short)
             # add novel pixels to global pixels
@@ -1341,7 +1250,6 @@ class FlowCoding(torch.nn.Module):
             # flip back to original temporal order
             encoded_pixels = encoded_pixels.flip(0)
         
-        self.mix_mode = mix_mode
         self.shape = shape
         # n_pixels is the sum of the number of unique pixels of the entire batch
         self.n_pixels = n_pixels
@@ -1355,168 +1263,17 @@ class FlowCoding(torch.nn.Module):
         # percompute `counts' since it does not depend on the input
         self.counts.index_put_((self.encoded_pixels,), torch.tensor(1), accumulate=True)
 
-        if self.mix_mode == 'convolution':
-            """
-            The encoded_pixels (THW) has the same shape as the video frames (THW3),
-            each of the encode_pixel stores an index pointing to a shared pixel_repo (N3).
-            To decode it, simply index pixel values from the repository:
-                pixel_repo (N3)[ encoded_pixels (THW) ] => video frames (THW3)
 
-            On the other hand, the inverted_encodings share the same length with the pixel_repo,
-            storing the coordinates of the encoded_pixels whose encodings point to the corresponding pixel.
-            The inverted_encodings is a list with N tensors. Each tensor has a shape of (M_n)3, meaning that
-            there may be variable numbers (M_n) of encoded_pixel pointing to each pixel (n), and `3' does
-            not represents RGB (as that does in the pixel_repo), instead, it represents the coordinates in
-            the encoded_pixel (THW). (Note that the actual length of the inverted_encodings is way smaller
-            than N, because the tensors with same lengths are stacked in advance.)
-
-            The reason to make such inverted_encodings is that we can grab all pixels correspond to the same share
-            location at once after generating this pixels in every denoising step. We can apply a 1D convolution
-            with custom kernel to smooth these pixels and assign them back to their own frame.
-            """
-            self.average_small_bucket = average_small_bucket
-            self.small_bucket_threshold = small_bucket_threshold * kernel_width
-
-            self.inverted_encodings = self._build_inverted_encoding()
-            self.padded_inverted_encodings = self._reflection_pad(self.inverted_encodings, kernel_width)
-            self.kernel_width = kernel_width
-
-            # refer to the `sophisticated design' in the forward method
-            offset = torch.tensor([1, 0, 0], dtype=self.inverted_encodings[0].dtype)
-            self.inverted_encodings = [enc + offset for enc in self.inverted_encodings]
-
-
-    def _build_inverted_encoding(self):
-        def generalized_stack(inverted_encodings):
-            """
-            Stack the tensors with same length.
-            args:
-                inverted_encodings: a list of tensors (sorted by the length)
-            """
-            lens = [len(enc) for enc in inverted_encodings]
-            current_len = lens[0]
-            split_points = [0]
-            for i, _len in enumerate(lens):
-                if _len != current_len:
-                    split_points.append(i)
-                    current_len = _len
-
-            stacked_encodings = []
-            for i in range(0, len(split_points)):
-                start = split_points[i]
-                end = split_points[i+1] if i < len(split_points) - 1 else None
-                stacked_encodings.append(torch.stack(
-                    inverted_encodings[start:end]
-                ))
-
-            return stacked_encodings
-
-        # TODO: batched implementation
-        inverted_encodings = [[] for _ in range(self.n_pixels)]
-        encoded_pixels = self.encoded_pixels[0] # unbatch
-
-        # coordinate matrix
-        shape = encoded_pixels.shape
-        coords = torch.from_numpy(
-            np.array([i for i in np.ndindex(*shape)]).reshape(-1, len(shape))).to(torch.int64)
-
-        from time import time
-        print('Building inverse encoding')
-        from tqdm.auto import tqdm
-        with tqdm(total=len(coords)) as progress_bar:
-            t = time()
-            for idx, coord in zip(encoded_pixels.flatten(), coords):
-                # TODO: vectorize
-                inverted_encodings[idx].append(coord)
-                progress_bar.update()
-        print(f'takes {time() - t} sec')
-
-        print('Stack and sort')
-        t = time()
-        inverted_encodings = sorted([torch.stack(enc) for enc in inverted_encodings],
-                                    key=lambda enc: len(enc))
-        print(f'takes {time() - t} sec')
-
-        print('Generalized stack')
-        t = time()
-        inverted_encodings =  generalized_stack(inverted_encodings)
-        print(f'takes {time() - t} sec')
-
-        return inverted_encodings
-
-    def _reflection_pad(self, inverted_encodings, kw):
-        print('Padding encodings')
-        padded_inverted_encodings = []
-        for enc in inverted_encodings:
-            if self.average_small_bucket and enc.size(0) < self.small_bucket_threshold:
-                padded_inverted_encodings.append(enc)
-                continue
-
-            enc = enc.transpose(0, 1) # BM3 -> MB3
-            reflect = enc.flip(0)
-            while len(reflect) < kw/2:
-                reflect = torch.cat((reflect, enc, enc.flip(0)))
-
-            fpad = (kw - 1) // 2
-            bpad = kw - 1 - fpad
-
-            pad_front = reflect[-fpad:] 
-            pad_back  = reflect[:bpad] 
-            assert len(pad_front) == fpad
-            assert len(pad_back)  == bpad
-
-            penc = torch.cat((pad_front, enc, pad_back))
-            penc = penc.transpose(0, 1) # MB3 -> BM3
-            padded_inverted_encodings.append(penc)
-        return padded_inverted_encodings 
-
-    def forward(self, samples, kernel):
-        assert kernel is None or (isinstance(kernel, torch.Tensor) and len(kernel.shape) == 1)
-
+    def forward(self, samples):
         original_shape = samples.shape[-2:]
         samples = torch.nn.functional.interpolate(
             samples, self.shape, mode='bilinear')
         samples = samples.permute(0, 2, 3, 1) # TCHW -> THWC
 
-        if self.mix_mode == 'global_average':
-            self.values.zero_()
-            self.values.index_put_((self.encoded_pixels,), samples, accumulate=True)
-            pixels = torch.where(self.counts > 0, self.values / self.counts, self.values)
-            mixed = pixels[self.encoded_pixels][0].permute(0, 3, 1, 2) # BTHWC -> TCHW
-
-        elif self.mix_mode == 'convolution':
-            assert len(kernel) == self.kernel_width
-            kernel = kernel[None, None] # match the format required by torch Conv1d
-            kernel = kernel.to(device=samples.device, dtype=samples.dtype)
-            for enc, penc in zip(self.inverted_encodings, self.padded_inverted_encodings):
-                # safe operation when accessing values
-                # duplicate references to the zero padding (0, 0, 0)
-                # have no effect on the position of interest
-                B = len(enc)
-                t, y, x = penc.reshape(-1, 3).transpose(0, 1) # BM3 -> (111)(BM)
-                pixels = samples[t, y, x].view(B, -1, 3).permute(0, 2, 1).reshape(3*B, 1, -1) # (BM)3 -> (B3)1M
-                if self.average_small_bucket and enc.size(1) == penc.size(1):
-                    pixels[:] = pixels.mean(-1, keepdims=True)
-                else:
-                    pixels = torch.nn.functional.conv1d(pixels, kernel)
-                pixels = pixels.view(B, 3, -1) # (B3)1M -> B3M
-
-                # very sophisticated design:
-                # it's unsafe to index by tensor and assign values
-                # because the duplicate zero padding (0, 0, 0) index
-                # would overwrite the intended values with dummpy values
-
-                # here we instead prepend a dummpy temporal dimension
-                # to store these dummy values,
-                # so all of the temporal index should be shifted by 1 (already shifted in the constructor)
-                samples_shifted = torch.cat((
-                    torch.zeros(1, *samples.shape[1:], device=samples.device, dtype=samples.dtype),
-                    samples)) # THWC -> (1+T)HWC
-                t, y, x = enc.view(-1, 3).transpose(0, 1) # BM3 -> (111)(BM)
-                samples_shifted[t, y, x] = pixels.transpose(1, 2).reshape(-1, 3) # B3M -> (BM)3
-                samples[:] = samples_shifted[1:]
-
-            mixed = samples.permute(0, 3, 1, 2) # THWC -> TCHW
+        self.values.zero_()
+        self.values.index_put_((self.encoded_pixels,), samples, accumulate=True)
+        pixels = torch.where(self.counts > 0, self.values / self.counts, self.values)
+        mixed = pixels[self.encoded_pixels][0].permute(0, 3, 1, 2) # BTHWC -> TCHW
 
         mixed = torch.nn.functional.interpolate(
             mixed, original_shape, mode='bilinear')
