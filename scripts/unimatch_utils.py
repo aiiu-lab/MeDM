@@ -1,4 +1,4 @@
-from unimatch import UniMatch
+from unimatch.unimatch import UniMatch
 from unimatch.geometry import forward_backward_consistency_check
 import argparse
 import torch
