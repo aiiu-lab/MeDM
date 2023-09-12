@@ -79,6 +79,7 @@ else:
         PNDMPipeline,
         RePaintPipeline,
         ScoreSdeVePipeline,
+        MeDMPipeline,
     )
     from .schedulers import (
         CMStochasticIterativeScheduler,
@@ -169,7 +170,6 @@ else:
         StableDiffusionControlNetImg2ImgPipeline,
         StableDiffusionControlNetInpaintPipeline,
         StableDiffusionControlNetPipeline,
-        StableDiffusionControlNetMeDMPipeline,
         StableDiffusionDepth2ImgPipeline,
         StableDiffusionDiffEditPipeline,
         StableDiffusionGLIGENPipeline,
