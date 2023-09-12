@@ -1,6 +1,6 @@
 # MeDM: Mediating Image Diffusion Models for Video-to-Video Translation with Temporal Correspondence Guidance
 
-<img src=https://github.com/ernestchu/MeDM/assets/51432514/6cf5b247-1269-4845-8c07-8cb67b10cf23 width="100%"></img>
+<img src=https://github.com/aiiu-lab/MeDM/assets/51432514/d0699c0c-3fa8-49ba-b141-ee05824bf9d3 width="100%"></img>
 
 [Ernie Chu](https://ernestchu.github.io),
 Tzuhsuan Huang,
