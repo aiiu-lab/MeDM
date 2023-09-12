@@ -1,6 +1,6 @@
 # MeDM: Mediating Image Diffusion Models for Video-to-Video Translation with Temporal Correspondence Guidance
 
-<video src="https://medm2023.github.io/videos/teaser.mp4" width="100%" loop muted autoplay playsinline></video>
+![](https://medm2023.github.io/videos/teaser.gif)
 
 
 [Ernie Chu](https://ernestchu.github.io),
