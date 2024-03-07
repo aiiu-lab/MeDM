@@ -32,11 +32,11 @@ We provide two simple examples on how to use `MeDMPipeline` in `colabs`. Remembe
 ### Citation
 If you find our work useful, please consider cite this work as
 ```bibtex
-@article{chu2023medm,
+@inproceedings{chu2024medm,
       title={MeDM: Mediating Image Diffusion Models for Video-to-Video Translation with Temporal Correspondence Guidance},
       author={Ernie Chu and Tzuhsuan Huang and Shuo-Yen Lin and Jun-Cheng Chen},
-      journal={arXiv preprint arXiv:2308.10079},
-      year={2023}
+      booktitle={Proceedings of the AAAI Conference on Artificial Intelligence},
+      year={2024}
 }
 ```
 
