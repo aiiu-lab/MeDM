@@ -9,7 +9,7 @@ Tzuhsuan Huang,
 Shuo-Yen Lin,
 [Jun-Cheng Chen](https://www.citi.sinica.edu.tw/pages/pullpull/)
 
-CITI, Academia Sinica
+Research Center for Information Technology Innovation, Academia Sinica
 
 #### [Project Page](https://medm2023.github.io) | [Paper](https://medm2023.github.io/medm.pdf) | [arXiv](https://arxiv.org/abs/2308.10079) | [Colab](#colab-demo)
 
